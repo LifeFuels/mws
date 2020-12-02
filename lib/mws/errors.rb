@@ -4,6 +4,10 @@ module Mws::Errors
 
   end
 
+  class ThrottleError < Error
+
+  end
+
   class ServerError < Error
 
     attr_reader :type, :code, :message, :details

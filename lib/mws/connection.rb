@@ -35,6 +35,7 @@ module Mws
     private
 
     def request(method, path, params, body, overrides)
+      begin
       query = Query.new({
         action: overrides[:action],
         version: overrides[:version],
@@ -43,7 +44,19 @@ module Mws
         list_pattern: overrides.delete(:list_pattern)
       }.merge(params))
       signer = Signer.new method: method, host: @host, path: path, secret: @secret
-      parse response_for(method, path, signer.sign(query), body), overrides
+      response = parse response_for(method, path, signer.sign(query), body), overrides
+
+      # if we have a throttling error handle it so we can retry
+      if response.key?('ErrorResponse') && response['ErrorResponse']['Error']['Code'] == 'RequestThrottled'
+        raise Mws::Errors::ThrottleError.new
+      end
+
+      response
+      rescue Mws::Errors::ThrottleError
+        # retry to handle AWS throttling
+        sleep(60)
+        retry
+      end
     end
 
     def response_for(method, path, query, body)
@@ -68,6 +81,8 @@ module Mws
     end
 
     def parse(body, overrides)
+      return Hash.from_xml(body)
+
       doc = Nokogiri::XML(body)
       doc.remove_namespaces!
       doc.xpath('/ErrorResponse/Error').each do | error |
